@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Suivi des congés</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4caf50" />
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#f5f7fb;margin:0;padding:20px}
+h1{text-align:center}
+.container{max-width:900px;margin:auto}
+.controls{display:flex;gap:10px;justify-content:center;margin-bottom:15px;flex-wrap:wrap}
+input,button,select{padding:8px 10px;border-radius:8px;border:1px solid #ccc}
+button{cursor:pointer}
+.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.day{background:white;border-radius:10px;padding:10px;min-height:80px;box-shadow:0 1px 4px rgba(0,0,0,0.1);position:relative}
+.day-number{font-weight:bold;font-size:14px}
+.vacation{position:absolute;bottom:6px;left:6px;right:6px;background:#4caf50;color:white;border-radius:6px;font-size:12px;text-align:center;padding:2px;cursor:pointer}
+.pending{position:absolute;bottom:6px;left:6px;right:6px;background:#ff9800;color:white;border-radius:6px;font-size:12px;text-align:center;padding:2px;cursor:pointer}
+.holiday{position:absolute;top:22px;left:6px;right:6px;background:#e53935;color:white;border-radius:6px;font-size:11px;text-align:center;padding:2px}
+.header{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:5px;font-weight:bold;text-align:center}
+.month-nav{display:flex;justify-content:center;align-items:center;gap:15px;margin-bottom:15px}
+.month-title{font-size:18px;font-weight:bold}
+.counter{background:white;border-radius:10px;padding:10px;margin-bottom:15px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.1)}
+.install{display:flex;justify-content:center;margin-bottom:15px}
+.install button{background:#4caf50;color:rgb(255, 255, 255);border:none}
+.legend{display:flex;gap:15px;justify-content:center;margin-bottom:10px;font-size:13px}
+.legend span{padding:4px 8px;border-radius:6px;color:white}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Mes Congés Payés</h1>
+
+<div class="install">
+<button id="installBtn" style="display:none">📲 Installer l'application</button>
+</div>
+
+<div class="counter">
+Total congés: <b id="total"></b> jours | Utilisés: <b id="used"></b> jours | Restants: <b id="remaining"></b> jours
+</div>
+
+<div class="controls">
+<input type="date" id="start" />
+<input type="date" id="end" />
+<select id="status">
+<option value="approved">Congé validé</option>
+<option value="pending">Congé non validé</option>
+</select>
+<button onclick="addVacation()">Ajouter congé</button>
+</div>
+
+<div class="legend">
+<span style="background:#4caf50">Validé</span>
+<span style="background:#ff9800">Non validé</span>
+<span style="background:#e53935">Férié</span>
+</div>
+
+<div class="month-nav">
+<button onclick="changeMonth(-1)">◀</button>
+<div id="monthTitle" class="month-title"></div>
+<button onclick="changeMonth(1)">▶</button>
+</div>
+
+<div class="header">
+<div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+</div>
+
+<div id="calendar" class="calendar"></div>
+</div>
+
+<script>
+const calendar = document.getElementById('calendar')
+const totalVacationDays = 15
+
+let vacations = JSON.parse(localStorage.getItem('vacations') || '[]')
+let currentDate = new Date()
+
+const holidays = {
+"2026-01-01":"Jour de l'An",
+"2026-04-06":"Lundi de Pâques",
+"2026-05-01":"Fête du Travail",
+"2026-05-08":"Victoire 1945",
+"2026-05-14":"Ascension",
+"2026-05-25":"Pentecôte",
+"2026-07-14":"Fête Nationale",
+"2026-08-15":"Assomption",
+"2026-11-01":"Toussaint",
+"2026-11-11":"Armistice",
+"2026-12-25":"Noël"
+}
+
+const monthNames=["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
+
+function generateCalendar(){
+calendar.innerHTML=''
+
+const year=currentDate.getFullYear()
+const month=currentDate.getMonth()
+
+document.getElementById('monthTitle').textContent=monthNames[month]+" "+year
+
+const firstDay=new Date(year,month,1)
+const lastDay=new Date(year,month+1,0)
+
+let startDay=firstDay.getDay()
+startDay=startDay===0?6:startDay-1
+
+for(let i=0;i<startDay;i++){
+const empty=document.createElement('div')
+calendar.appendChild(empty)
+}
+
+for(let d=1; d<=lastDay.getDate(); d++){
+const dayEl=document.createElement('div')
+dayEl.className='day'
+
+const dateStr=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+
+dayEl.innerHTML=`<div class='day-number'>${d}</div>`
+
+if(holidays[dateStr]){
+const hol=document.createElement('div')
+hol.className='holiday'
+hol.textContent=holidays[dateStr]
+dayEl.appendChild(hol)
+}
+
+const vac=getVacation(dateStr)
+if(vac){
+const el=document.createElement('div')
+el.className=vac.status==='approved'?'vacation':'pending'
+el.textContent=vac.status==='approved'?'Congé':'En attente'
+
+el.onclick=(e)=>{e.stopPropagation();deleteVacation(vac.id)};
+
+// permet aussi de supprimer en cliquant sur le jour
+      dayEl.onclick=()=>deleteVacation(vac.id)
+
+dayEl.appendChild(el)
+}
+
+calendar.appendChild(dayEl)
+}
+
+updateCounter()
+}
+
+function getVacation(date){
+return vacations.find(v=> date>=v.start && date<=v.end)
+}
+
+function addVacation(){
+const start=document.getElementById('start').value
+const end=document.getElementById('end').value
+const status=document.getElementById('status').value
+
+if(!start||!end) return alert('Choisissez des dates')
+
+const id=Date.now()
+
+vacations.push({id,start,end,status})
+localStorage.setItem('vacations',JSON.stringify(vacations))
+
+generateCalendar()
+}
+
+function deleteVacation(id){
+if(!confirm('Supprimer ce congé ?')) return
+
+vacations=vacations.filter(v=>v.id!==id)
+localStorage.setItem('vacations',JSON.stringify(vacations))
+
+generateCalendar()
+}
+
+function changeMonth(step){
+currentDate.setMonth(currentDate.getMonth()+step)
+generateCalendar()
+}
+
+function updateCounter(){
+let used=0
+
+vacations.forEach(v=>{
+if(v.status!=='approved') return
+
+let start=new Date(v.start)
+let end=new Date(v.end)
+
+for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
+let day=d.getDay()
+if(day!==0 && day!==6) used++
+}
+})
+
+let remaining=totalVacationDays-used
+
+document.getElementById('total').textContent=totalVacationDays
+
+document.getElementById('used').textContent=used
+
+document.getElementById('remaining').textContent=remaining
+}
+
+let deferredPrompt
+const installBtn=document.getElementById('installBtn')
+
+window.addEventListener('beforeinstallprompt',(e)=>{
+ e.preventDefault()
+ deferredPrompt=e
+ installBtn.style.display='block'
+})
+
+installBtn.addEventListener('click',async()=>{
+ if(!deferredPrompt) return
+ deferredPrompt.prompt()
+ deferredPrompt=null
+ installBtn.style.display='none'
+})
+
+if('serviceWorker' in navigator){
+ navigator.serviceWorker.register('sw.js')
+}
+
+generateCalendar()
+</script>
+</body>
+</html>
